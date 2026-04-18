@@ -41,7 +41,7 @@ This project fixes all three at install time and wraps everything in a clean UI.
 | Unified memory | 16 GB | 24 GB+ |
 | Free disk | ~15 GB (repo + venv + weights) | 25 GB |
 | macOS | 13 Ventura | 14 Sonoma or later |
-| Python | 3.10 – 3.11 | 3.10 |
+| Python | 3.10 – 3.11 | 3.12 |
 | Homebrew | any recent version | latest |
 
 Tested on an M4 Pro with 24 GB unified memory.
