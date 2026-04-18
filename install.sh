@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hunyuan3D 2.1 — автоматическая установка для macOS (Apple Silicon)
-# Адаптировано под Mac с M1/M2/M3/M4 (рекомендуется >= 16 GB unified memory)
+# Hunyuan3D 2.1 – Automatic Installation for macOS (Apple Silicon)
+# Adapted for Macs with M1/M2/M3/M4 processors (>= 16 GB unified memory recommended)
 # =============================================================================
 set -euo pipefail
 
