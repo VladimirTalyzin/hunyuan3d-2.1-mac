@@ -8,6 +8,8 @@ This repository provides a turnkey Mac installer, a CUDA-to-MPS compatibility pa
 
 ---
 
+<img width="1874" height="861" alt="image" src="https://github.com/user-attachments/assets/95433b87-9cdd-4d05-a99e-509723cd8ac0" />
+
 ## Why this repo exists
 
 The upstream Hunyuan 3D 2.1 release targets NVIDIA CUDA GPUs on Linux. On a Mac you'll hit three blockers out of the box:
