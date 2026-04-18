@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Дозагрузка весов и починка путей для уже установленного Hunyuan3D 2.1.
-# Запускай, если install.sh упал на этапе скачивания моделей или
-# если интерфейс говорит "No module named 'hy3dshape.pipelines'".
+# Additional loading of weights and path fixes for an already installed Hunyuan3D 2.1.
+# Run this if install.sh crashed during the model download stage or
+# if the interface displays “No module named 'hy3dshape.pipelines'.”
 # =============================================================================
 set -euo pipefail
 
