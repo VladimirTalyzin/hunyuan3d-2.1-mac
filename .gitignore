@@ -1,0 +1,40 @@
+# Upstream Tencent repo (cloned by install.sh — not redistributed)
+Hunyuan3D-2.1/
+
+# Model weights (downloaded from Hugging Face at install time — not redistributed)
+weights/
+
+# Generated outputs
+outputs/
+
+# Python virtualenv
+venv/
+env/
+.venv/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+._*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Gradio temp
+gradio_cached_examples/
+flagged/

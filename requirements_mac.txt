@@ -1,0 +1,43 @@
+# ============================================================
+# Hunyuan3D 2.1 — зависимости для macOS (Apple Silicon)
+# torch/torchvision/torchaudio ставятся отдельно в install.sh
+# (последние версии с поддержкой MPS)
+# ============================================================
+
+# Основные ML-библиотеки
+diffusers>=0.30.0
+transformers>=4.45.0
+accelerate>=1.0.0
+safetensors>=0.4.5
+huggingface_hub>=0.25.0
+sentencepiece>=0.2.0
+einops>=0.8.0
+omegaconf>=2.3.0
+
+# Обработка изображений
+Pillow>=10.4.0
+opencv-python>=4.10.0
+rembg[cpu]>=2.0.58          # удаление фона — на Mac использует CPU-бэкенд
+onnxruntime>=1.19.0          # для rembg на Apple Silicon
+
+# 3D-стек
+trimesh>=4.4.0
+numpy>=1.26,<2.2             # совместимость с trimesh
+scipy>=1.13.0
+scikit-image>=0.24.0
+PyMCubes>=0.1.4              # marching cubes для извлечения мешей
+pygltflib>=1.16.0            # экспорт в GLB/GLTF
+open3d>=0.18.0 ; platform_machine == "arm64"
+xatlas>=0.0.9                # UV-развёртка
+
+# Веб-интерфейс
+gradio>=5.0.0
+gradio-client>=1.3.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# Утилиты
+tqdm>=4.66.0
+pyyaml>=6.0.2
+python-dotenv>=1.0.1
+loguru>=0.7.2
