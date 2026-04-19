@@ -903,16 +903,59 @@ def generate_3d(
 
 
 # ==== Post-processing and download handlers ================================
+def _recover_mesh_state(
+    mesh_state: Optional[dict],
+    preview_path: Optional[str],
+) -> Optional[dict]:
+    """Return a usable mesh_state, rebuilding from the preview file if the
+    session-scoped `gr.State` has expired.
+
+    Gradio's `gr.State` is tied to the browser session. If the user leaves
+    the tab idle for long enough the state is garbage-collected even though
+    the <model-viewer> still shows the generated file (that file lives in
+    `outputs/` and is served statically). In that case we reload the file
+    from disk and treat it as a fresh "original" so optimization and
+    download keep working.
+    """
+    if mesh_state and "original" in mesh_state:
+        return mesh_state
+    # Gradio may send the state as an empty dict or None.
+    if not preview_path:
+        return mesh_state
+    try:
+        # Model3D passes either a local path or a dict with {"path": ...}.
+        if isinstance(preview_path, dict):
+            preview_path = preview_path.get("path") or preview_path.get("name")
+        if not preview_path or not os.path.exists(preview_path):
+            return mesh_state
+        loaded = trimesh.load(preview_path, force="mesh")
+        if not isinstance(loaded, trimesh.Trimesh) or len(loaded.faces) == 0:
+            return mesh_state
+        return {
+            "original": loaded,
+            "mesh": loaded,
+            "original_faces": int(len(loaded.faces)),
+            "original_vertices": int(len(loaded.vertices)),
+            "last_op": "recovered",
+        }
+    except Exception as e:
+        print(f"[recover] failed to reload preview {preview_path!r}: {e}",
+              flush=True)
+        return mesh_state
+
+
 def optimize_3d_handler(
     mesh_state: Optional[dict],
     mode_key: str,
     level_key: str,
     lang: str,
+    preview_path: Optional[str] = None,
 ):
     """Apply the chosen algorithm + level to the ORIGINAL mesh.
 
     Returns (preview_glb, new_state, log).
     """
+    mesh_state = _recover_mesh_state(mesh_state, preview_path)
     if not mesh_state or "original" not in mesh_state:
         if mesh_state and "mesh" in mesh_state:
             mesh_state = dict(mesh_state)
@@ -978,8 +1021,13 @@ def optimize_3d_handler(
     return preview, new_state, "\n".join(log_lines)
 
 
-def download_3d_handler(mesh_state: Optional[dict], fmt: str):
+def download_3d_handler(
+    mesh_state: Optional[dict],
+    fmt: str,
+    preview_path: Optional[str] = None,
+):
     """Export the current mesh in the chosen format. Returns the file path."""
+    mesh_state = _recover_mesh_state(mesh_state, preview_path)
     if not mesh_state or "mesh" not in mesh_state:
         return None
     mesh: trimesh.Trimesh = mesh_state["mesh"]
@@ -1152,13 +1200,13 @@ with gr.Blocks(title="Hunyuan3D 2.1") as demo:
 
     opt_btn.click(
         fn=optimize_3d_handler,
-        inputs=[mesh_state, opt_mode, opt_level, lang_state],
+        inputs=[mesh_state, opt_mode, opt_level, lang_state, model3d],
         outputs=[model3d, mesh_state, opt_log],
     )
 
     dl_btn.click(
         fn=download_3d_handler,
-        inputs=[mesh_state, dl_format],
+        inputs=[mesh_state, dl_format, model3d],
         outputs=[dl_file],
     )
 
