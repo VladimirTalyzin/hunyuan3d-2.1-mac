@@ -33,6 +33,10 @@ import trimesh
 import gradio as gr
 from PIL import Image
 
+# Lowpoly optimization algorithms (quadric / iso / planar / hybrid / auto)
+# live in a standalone module that can be used from the debug CLI too.
+import lowpoly  # noqa: E402
+
 # ---- Runtime patches: redirect CUDA-only calls to MPS/CPU ------------------
 # Hunyuan3D source hard-codes `device='cuda'` and `torch.autocast(device_type='cuda')`
 # which crashes with "Torch not compiled with CUDA enabled" on Apple Silicon.
@@ -235,6 +239,15 @@ I18N: dict[str, dict[str, str]] = {
         "mps_stats_off_note": "_Tracking was requested but `torch.overrides.TorchFunctionMode` is unavailable in this PyTorch version._",
         "postproc_header":  "### Post-processing (mesh decimation)",
         "opt_level_label":  "Optimization level (always applied to the original mesh)",
+        "opt_mode_label":   "Algorithm",
+        "opt_mode_help": (
+            "- **Quadric** — universal, uniform reduction; best overall quality/size ratio.\n"
+            "- **Iso** — uniform-edge remeshing with feature-edge preservation (CAD-like).\n"
+            "- **Planar** — consolidates large flat regions into few big triangles "
+            "(door panels, walls, boxes). Keeps curved regions as-is.\n"
+            "- **Hybrid** — planar first, then quadric. Fewer triangles, keeps flat look.\n"
+            "- **Auto** — planar for hard-surface meshes, quadric for organic ones.\n"
+        ),
         "opt_btn":          "🛠️ Apply optimization",
         "opt_log":          "Post-processing log",
         "download_header":  "### Download mesh",
@@ -254,6 +267,12 @@ I18N: dict[str, dict[str, str]] = {
         "opt_weak":   "Light (≈ 30% of original)",
         "opt_medium": "Medium (≈ 8% of original)",
         "opt_strong": "Heavy (≈ 2% of original)",
+        # ----- optimization mode labels -----
+        "opt_mode_quadric": "Quadric (universal)",
+        "opt_mode_iso":     "Iso (uniform triangles)",
+        "opt_mode_planar":  "Planar (big flat triangles)",
+        "opt_mode_hybrid":  "Hybrid (planar + quadric)",
+        "opt_mode_auto":    "Auto (detect & pick)",
         # ----- dynamic log messages -----
         "log_device":          "Device: {device}, dtype: {dtype}",
         "log_preprocess":      "Preprocessing image (remove_bg={remove_bg})...",
@@ -274,6 +293,8 @@ I18N: dict[str, dict[str, str]] = {
         "log_shown_original":  "Showing original without optimization: {verts} vertices, {faces} faces.",
         "log_already_small":   "Mesh is already smaller than target ({faces} ≤ {target}). Optimization not needed.",
         "log_decimating":      "Decimating original ({faces} faces) → ~{target} faces (level: «{level}»)...",
+        "log_optimizing":      "Optimizing: algorithm «{mode}», level «{level}», input {faces} faces...",
+        "log_auto_pick":       "Auto classifier: large-planar area = {ratio:.0f}% → chose «{chosen}».",
         "log_decimation_done": "✅ Done in {elapsed:.1f} s: {v0}→{v1} vertices, {f0}→{f1} faces (reduced by {pct:.1f}%)",
         "log_preview":         "Preview: {path}",
         # ----- MPS stats block -----
@@ -329,6 +350,20 @@ I18N: dict[str, dict[str, str]] = {
         "opt_weak":   "轻度（约原始的 30%）",
         "opt_medium": "中度（约原始的 8%）",
         "opt_strong": "高度（约原始的 2%）",
+        "opt_mode_label":   "算法",
+        "opt_mode_help": (
+            "- **Quadric** — 通用，均匀简化；综合质量/体积最佳。\n"
+            "- **Iso** — 各向同性重新网格化，保留特征边（CAD 风格）。\n"
+            "- **Planar** — 把大型平面区域合并成少量大三角形"
+            "（门板、墙面、盒子）。曲面区域保持原样。\n"
+            "- **Hybrid** — 先 Planar，再 Quadric。三角形更少，保留平面外观。\n"
+            "- **Auto** — 硬表面网格用 Planar，有机造型用 Quadric。\n"
+        ),
+        "opt_mode_quadric": "Quadric（通用）",
+        "opt_mode_iso":     "Iso（均匀三角形）",
+        "opt_mode_planar":  "Planar（大平面三角形）",
+        "opt_mode_hybrid":  "Hybrid（Planar + Quadric）",
+        "opt_mode_auto":    "Auto（自动检测）",
         "log_device":          "设备：{device}，精度：{dtype}",
         "log_preprocess":      "预处理图像（remove_bg={remove_bg}）……",
         "log_after_size":      "预处理后尺寸：{size}",
@@ -348,6 +383,8 @@ I18N: dict[str, dict[str, str]] = {
         "log_shown_original":  "显示未优化的原始网格：{verts} 个顶点，{faces} 个面。",
         "log_already_small":   "网格已小于目标面数（{faces} ≤ {target}）。无需优化。",
         "log_decimating":      "对原始网格进行简化（{faces} 个面）→ 约 {target} 个面（级别：「{level}」）……",
+        "log_optimizing":      "优化中：算法「{mode}」，级别「{level}」，输入 {faces} 个面……",
+        "log_auto_pick":       "Auto 分类器：大平面面积占比 {ratio:.0f}% → 选择「{chosen}」。",
         "log_decimation_done": "✅ 完成，用时 {elapsed:.1f} 秒：{v0}→{v1} 顶点，{f0}→{f1} 面（减少 {pct:.1f}%)",
         "log_preview":         "预览：{path}",
         "mps_total":       "**张量操作总数：** {total}",
@@ -386,6 +423,19 @@ I18N: dict[str, dict[str, str]] = {
         "mps_stats_off_note": "_Трекинг запрошен, но `torch.overrides.TorchFunctionMode` недоступен в этой версии PyTorch._",
         "postproc_header":  "### Пост-обработка (декимация меша)",
         "opt_level_label":  "Уровень оптимизации (всегда применяется к исходному мешу)",
+        "opt_mode_label":   "Алгоритм",
+        "opt_mode_help": (
+            "- **Quadric** — универсальный, равномерная децимация; "
+            "лучшее соотношение качества и размера.\n"
+            "- **Iso** — равномерные треугольники с сохранением характерных "
+            "рёбер (CAD-вид).\n"
+            "- **Planar** — сливает большие плоские регионы в несколько "
+            "крупных треугольников (дверные панели, стены, коробки). "
+            "Изогнутые участки остаются как есть.\n"
+            "- **Hybrid** — сначала planar, затем quadric. Меньше треугольников, "
+            "сохраняется «плоский» вид.\n"
+            "- **Auto** — planar для hard-surface, quadric для органики.\n"
+        ),
         "opt_btn":          "🛠️ Применить оптимизацию",
         "opt_log":          "Лог пост-обработки",
         "download_header":  "### Скачать меш",
@@ -404,6 +454,11 @@ I18N: dict[str, dict[str, str]] = {
         "opt_weak":   "Слабая (≈ 30% от исходного)",
         "opt_medium": "Средняя (≈ 8% от исходного)",
         "opt_strong": "Сильная (≈ 2% от исходного)",
+        "opt_mode_quadric": "Quadric (универсальный)",
+        "opt_mode_iso":     "Iso (равномерные треугольники)",
+        "opt_mode_planar":  "Planar (крупные плоские треугольники)",
+        "opt_mode_hybrid":  "Hybrid (planar + quadric)",
+        "opt_mode_auto":    "Auto (автоподбор)",
         "log_device":          "Устройство: {device}, dtype: {dtype}",
         "log_preprocess":      "Предобработка изображения (remove_bg={remove_bg})...",
         "log_after_size":      "Размер после предобработки: {size}",
@@ -423,6 +478,8 @@ I18N: dict[str, dict[str, str]] = {
         "log_shown_original":  "Показан исходник без оптимизации: {verts} вершин, {faces} граней.",
         "log_already_small":   "Меш уже меньше целевого ({faces} ≤ {target}). Оптимизация не нужна.",
         "log_decimating":      "Декимация исходника ({faces} граней) → ~{target} граней (уровень: «{level}»)...",
+        "log_optimizing":      "Оптимизация: алгоритм «{mode}», уровень «{level}», на входе {faces} граней...",
+        "log_auto_pick":       "Auto-классификатор: площадь крупных плоских регионов {ratio:.0f}% → выбран «{chosen}».",
         "log_decimation_done": "✅ Готово за {elapsed:.1f} с: {v0}→{v1} вершин, {f0}→{f1} граней (уменьшено на {pct:.1f}%)",
         "log_preview":         "Превью: {path}",
         "mps_total":       "**Всего операций с тензорами:** {total}",
@@ -561,6 +618,16 @@ OPT_LEVEL_ORDER = ("none", "weak", "medium", "strong")
 def _opt_level_choices(lang: str) -> list[tuple[str, str]]:
     """Return [(display_label, internal_key), ...] for a gr.Radio."""
     return [(t(lang, f"opt_{k}"), k) for k in OPT_LEVEL_ORDER]
+
+
+# Order matters: the first entry is the default displayed at startup, and
+# `quadric` matches the pre-existing behavior so opening the UI in a new
+# session is indistinguishable from before.
+OPT_MODE_ORDER = ("quadric", "iso", "planar", "hybrid", "auto")
+
+
+def _opt_mode_choices(lang: str) -> list[tuple[str, str]]:
+    return [(t(lang, f"opt_mode_{k}"), k) for k in OPT_MODE_ORDER]
 
 
 def _preclean_mesh_pymeshlab(ms) -> None:
@@ -836,8 +903,13 @@ def generate_3d(
 
 
 # ==== Post-processing and download handlers ================================
-def optimize_3d_handler(mesh_state: Optional[dict], level_key: str, lang: str):
-    """Apply the chosen optimization level to the ORIGINAL mesh.
+def optimize_3d_handler(
+    mesh_state: Optional[dict],
+    mode_key: str,
+    level_key: str,
+    lang: str,
+):
+    """Apply the chosen algorithm + level to the ORIGINAL mesh.
 
     Returns (preview_glb, new_state, log).
     """
@@ -851,9 +923,8 @@ def optimize_3d_handler(mesh_state: Optional[dict], level_key: str, lang: str):
     original: trimesh.Trimesh = mesh_state["original"]
     n_v0, n_f0 = len(original.vertices), len(original.faces)
 
-    params = OPT_PARAMS.get(level_key)
-    if params is None:
-        # «None» — show the original
+    # «None» is independent of algorithm — just surface the original mesh.
+    if level_key == "none":
         preview = mesh_to_file(original, "glb", suffix="raw")
         new_state = dict(mesh_state)
         new_state["mesh"] = original
@@ -862,30 +933,33 @@ def optimize_3d_handler(mesh_state: Optional[dict], level_key: str, lang: str):
             lang, "log_shown_original", verts=n_v0, faces=n_f0,
         )
 
-    ratio = float(params["ratio"])
-    min_faces = int(params["min_faces"])
-    target = max(min_faces, int(round(n_f0 * ratio)))
-    if n_f0 <= target:
-        preview = mesh_to_file(original, "glb", suffix="raw")
-        new_state = dict(mesh_state)
-        new_state["mesh"] = original
-        new_state["last_op"] = "original"
-        return preview, new_state, t(
-            lang, "log_already_small", faces=n_f0, target=target,
-        )
-
     t0 = time.time()
+    mode_label = t(lang, f"opt_mode_{mode_key}")
     level_label = t(lang, f"opt_{level_key}")
     log_lines = [t(
-        lang, "log_decimating",
-        faces=n_f0, target=target, level=level_label,
+        lang, "log_optimizing",
+        mode=mode_label, level=level_label, faces=n_f0,
     )]
-    new_mesh = decimate_mesh(
-        original, target_faces=target, preserve_boundary=True, feature_smooth=True,
-    )
+
+    try:
+        result = lowpoly.optimize(original, mode=mode_key, level=level_key)
+    except Exception as e:
+        tb = traceback.format_exc()
+        log_lines.append(f"❌ {type(e).__name__}: {e}\n{tb}")
+        return None, mesh_state, "\n".join(log_lines)
+
+    new_mesh = result.mesh
     n_v1, n_f1 = len(new_mesh.vertices), len(new_mesh.faces)
 
-    preview = mesh_to_file(new_mesh, "glb", suffix=f"opt_{n_f1}")
+    if mode_key == "auto" and result.classifier_ratio is not None:
+        chosen_label = t(lang, f"opt_mode_{result.mode_used}")
+        log_lines.append(t(
+            lang, "log_auto_pick",
+            ratio=result.classifier_ratio * 100.0, chosen=chosen_label,
+        ))
+
+    suffix = f"{mode_key}_{level_key}_{n_f1}"
+    preview = mesh_to_file(new_mesh, "glb", suffix=suffix)
     elapsed = time.time() - t0
     saved_pct = 100.0 * (1.0 - n_f1 / max(n_f0, 1))
     log_lines.append(t(
@@ -899,7 +973,7 @@ def optimize_3d_handler(mesh_state: Optional[dict], level_key: str, lang: str):
         "mesh": new_mesh,
         "original_faces": n_f0,
         "original_vertices": n_v0,
-        "last_op": level_key,
+        "last_op": f"{mode_key}_{level_key}",
     }
     return preview, new_state, "\n".join(log_lines)
 
@@ -983,6 +1057,12 @@ with gr.Blocks(title="Hunyuan3D 2.1") as demo:
 
             with gr.Group():
                 postproc_md = gr.Markdown(t(DEFAULT_LANG, "postproc_header"))
+                opt_mode = gr.Radio(
+                    choices=_opt_mode_choices(DEFAULT_LANG),
+                    value="quadric",
+                    label=t(DEFAULT_LANG, "opt_mode_label"),
+                )
+                opt_mode_help = gr.Markdown(t(DEFAULT_LANG, "opt_mode_help"))
                 opt_level = gr.Radio(
                     choices=_opt_level_choices(DEFAULT_LANG),
                     value="medium",
@@ -1031,6 +1111,11 @@ with gr.Blocks(title="Hunyuan3D 2.1") as demo:
             gr.update(value=t(lang, "mps_stats_initial")),                   # mps_stats
             gr.update(value=t(lang, "postproc_header")),                     # postproc_md
             gr.update(
+                choices=_opt_mode_choices(lang),
+                label=t(lang, "opt_mode_label"),
+            ),                                                               # opt_mode
+            gr.update(value=t(lang, "opt_mode_help")),                       # opt_mode_help
+            gr.update(
                 choices=_opt_level_choices(lang),
                 label=t(lang, "opt_level_label"),
             ),                                                               # opt_level
@@ -1052,7 +1137,7 @@ with gr.Blocks(title="Hunyuan3D 2.1") as demo:
             img_in, remove_bg, track_mps,
             gen_acc, num_steps, guidance_scale, octree_resolution, seed,
             btn, log, model3d, mps_stats,
-            postproc_md, opt_level, opt_btn, opt_log,
+            postproc_md, opt_mode, opt_mode_help, opt_level, opt_btn, opt_log,
             download_md, dl_format, dl_btn, dl_file,
             tips_md,
         ],
@@ -1067,7 +1152,7 @@ with gr.Blocks(title="Hunyuan3D 2.1") as demo:
 
     opt_btn.click(
         fn=optimize_3d_handler,
-        inputs=[mesh_state, opt_level, lang_state],
+        inputs=[mesh_state, opt_mode, opt_level, lang_state],
         outputs=[model3d, mesh_state, opt_log],
     )
 
