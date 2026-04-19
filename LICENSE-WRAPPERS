@@ -10,6 +10,7 @@ which are the original work of Vladimir Talyzin and add Mac / Apple Silicon
     fix.sh
     launch.sh
     gradio_app.py
+    lowpoly.py
     requirements_mac.txt
     README.md
 
